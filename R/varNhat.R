@@ -20,16 +20,21 @@ varNhat <- function(data, model){
     select("Covered_area", "Area", "Sample.Label", !!strat_vars) %>%
     distinct() %>%
     reframe(Covered_area = sum(.data$Covered_area),
-              Area         = .data$Area) %>%
-    distinct()
-
+            Area         = .data$Area) %>%
+    distinct() %>%
+    # Add column giving number of obs per stratum
+    mutate(n_obs = data %>%
+             dplyr::group_by(across(strat_vars)) %>%
+             dplyr::summarize(n_obs = sum(!is.na(object))) %>%
+             dplyr::pull(n_obs))
+  
   # join the per-stratum data onto the frame
   data$Covered_area <- NULL
   data$Area <- NULL
   data <- left_join(data, grp_dat, by=strat_vars)
 
   # function to calculate Nhat
-  dhtd <- function(par, data, model){
+  dhtd <- function(par, data, model, grp_dat){
     # set par
     model$par <- par
 
@@ -43,6 +48,9 @@ varNhat <- function(data, model){
                      sum(.data$Nc, na.rm=TRUE)) %>%
       distinct()
 
+    # Include an NA for strata with no obs and then convert to 0.
+    res <- left_join(grp_dat, res, by = colnames(grp_dat)[1])
+    res$N[is.na(res$N)] <- 0
     res$N
   }
 
@@ -54,7 +62,7 @@ varNhat <- function(data, model){
 
   # calculate variance
   dm <- DeltaMethod(model$par, dhtd, vcov, sqrt(.Machine$double.eps),
-                    model=model, data=data)
+                    model=model, data=data, grp_dat=grp_dat)
   attr(dm, "vardat_str") <- vardat_str
 
   # fiddle with variance data.frame
